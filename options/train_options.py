@@ -41,6 +41,7 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--keep_batchnorm_fp32', type=str, default=None)
         parser.add_argument('--local_rank', type=int, default=0)
         parser.add_argument('--sync_bn', action='store_true', help='enabling apex sync BN')
+        parser.add_argument('--prof', type=int, default=-1, help='enabling nvtx trace from specified iteration')
 
         self.isTrain = True
         return parser

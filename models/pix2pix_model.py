@@ -118,10 +118,16 @@ class Pix2PixModel(BaseModel):
 
         The option 'direction' can be used to swap images in domain A and domain B.
         """
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_push("set_input")
+        
         AtoB = self.opt.direction == 'AtoB'
-        self.real_A = input['A' if AtoB else 'B'].to(self.device)
-        self.real_B = input['B' if AtoB else 'A'].to(self.device)
+        # self.real_A = input['A' if AtoB else 'B'].to(self.device)
+        # self.real_B = input['B' if AtoB else 'A'].to(self.device)
+        self.real_A = input['A' if AtoB else 'B']
+        self.real_B = input['B' if AtoB else 'A']
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
+
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_pop()
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
@@ -162,14 +168,28 @@ class Pix2PixModel(BaseModel):
             self.loss_G.backward()
 
     def optimize_parameters(self):
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_push("forward")
         self.forward()                   # compute fake images: G(A)
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_pop()
+
         # update D
         self.set_requires_grad(self.netD, True)  # enable backprop for D
         self.optimizer_D.zero_grad()     # set D's gradients to zero
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_push("backward_D")
         self.backward_D()                # calculate gradients for D
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_pop()
+
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_push("optimizer_D.step")
         self.optimizer_D.step()          # update D's weights
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_pop()
+
         # update G
         self.set_requires_grad(self.netD, False)  # D requires no gradients when optimizing G
         self.optimizer_G.zero_grad()        # set G's gradients to zero
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_push("backward_G")
         self.backward_G()                   # calculate graidents for G
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_pop()
+
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_push("optimizer_G.step")
         self.optimizer_G.step()             # udpate G's weights
+        if self.opt.prof >= 0: torch.cuda.nvtx.range_pop()

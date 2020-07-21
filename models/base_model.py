@@ -87,7 +87,9 @@ class BaseModel(ABC):
         if not self.isTrain or opt.continue_train:
             load_suffix = 'iter_%d' % opt.load_iter if opt.load_iter > 0 else opt.epoch
             self.load_networks(load_suffix)
-        self.print_networks(opt.verbose)
+
+        if opt.local_rank == 0:
+            self.print_networks(opt.verbose)
 
     def eval(self):
         """Make models eval mode during test time"""
@@ -124,7 +126,7 @@ class BaseModel(ABC):
                 scheduler.step()
 
         lr = self.optimizers[0].param_groups[0]['lr']
-        print('learning rate %.7f -> %.7f' % (old_lr, lr))
+        # print('learning rate %.7f -> %.7f' % (old_lr, lr))
 
     def get_current_visuals(self):
         """Return visualization images. train.py will display these images with visdom, and save the images to a HTML"""
@@ -153,8 +155,8 @@ class BaseModel(ABC):
                 save_filename = '%s_net_%s.pth' % (epoch, name)
                 save_path = os.path.join(self.save_dir, save_filename)
                 net = getattr(self, 'net' + name)
-                state = {'epoch': int(epoch)+1,
-                         'state_dict': net.module.state_dict()
+                state = {'epoch': epoch,
+                         'state_dict': net.state_dict()
                         }
                 torch.save(state, save_path)
                 # if len(self.gpu_ids) > 0 and torch.cuda.is_available():
