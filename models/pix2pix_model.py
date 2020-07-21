@@ -1,6 +1,16 @@
+import os
 import torch
 from .base_model import BaseModel
 from . import networks
+
+
+try:
+    from apex.parallel import DistributedDataParallel as DDP
+    from apex.fp16_utils import *
+    from apex import amp, optimizers
+    from apex.multi_tensor_apply import multi_tensor_applier
+except ImportError:
+    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
 
 class Pix2PixModel(BaseModel):
@@ -47,6 +57,17 @@ class Pix2PixModel(BaseModel):
         self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['real_A', 'fake_B', 'real_B']
+
+        self.use_fp16 = opt.use_fp16
+        self.opt_level = opt.opt_level
+
+        assert torch.backends.cudnn.enabled, "Amp requires cudnn backend to be enabled."
+
+        if opt.channels_last:
+            memory_format = torch.channels_last
+        else:
+            memory_format = torch.contiguous_format
+
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.isTrain:
             self.model_names = ['G', 'D']
@@ -60,6 +81,15 @@ class Pix2PixModel(BaseModel):
             self.netD = networks.define_D(opt.input_nc + opt.output_nc, opt.ndf, opt.netD,
                                           opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
+        if opt.sync_bn:
+            import apex
+            print('usign apex synced BN')
+            self.netG = apex.parallel.convert_syncbn_model(self.netG)
+            self.netD = apex.parallel.convert_syncbn_model(self.netD)
+
+        self.netG = self.netG.cuda().to(memory_format=memory_format)
+        self.netD = self.netD.cuda().to(memory_format=memory_format)
+
         if self.isTrain:
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
@@ -67,6 +97,16 @@ class Pix2PixModel(BaseModel):
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+
+        if self.use_fp16:
+            self.netG, self.optimizer_G = amp.initialize(self.netG, self.optimizer_G, opt_level=self.opt_level)
+            self.netD, self.optimizer_D = amp.initialize(self.netD, self.optimizer_D, opt_level=self.opt_level)
+
+        if opt.distributed:
+            self.netG = DDP(self.netG, delay_allreduce=True)
+            self.netD = DDP(self.netD, delay_allreduce=True)
+        
+        if self.isTrain:
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
@@ -99,7 +139,11 @@ class Pix2PixModel(BaseModel):
         self.loss_D_real = self.criterionGAN(pred_real, True)
         # combine loss and calculate gradients
         self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
-        self.loss_D.backward()
+        if self.use_fp16:
+            with amp.scale_loss(self.loss_D, self.optimizer_D) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            self.loss_D.backward()
 
     def backward_G(self):
         """Calculate GAN and L1 loss for the generator"""
@@ -111,7 +155,11 @@ class Pix2PixModel(BaseModel):
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) * self.opt.lambda_L1
         # combine loss and calculate gradients
         self.loss_G = self.loss_G_GAN + self.loss_G_L1
-        self.loss_G.backward()
+        if self.use_fp16:
+            with amp.scale_loss(self.loss_G, self.optimizer_G) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            self.loss_G.backward()
 
     def optimize_parameters(self):
         self.forward()                   # compute fake images: G(A)

@@ -108,10 +108,10 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
 
     Return an initialized network.
     """
-    if len(gpu_ids) > 0:
-        assert(torch.cuda.is_available())
-        net.to(gpu_ids[0])
-        net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
+    # if len(gpu_ids) > 0:
+    #     assert(torch.cuda.is_available())
+    #     net.to(gpu_ids[0])
+    #     net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
     init_weights(net, init_type, init_gain=init_gain)
     return net
 
@@ -236,6 +236,7 @@ class GANLoss(nn.Module):
             self.loss = None
         else:
             raise NotImplementedError('gan mode %s not implemented' % gan_mode)
+        self.loss = self.loss.cuda()
 
     def get_target_tensor(self, prediction, target_is_real):
         """Create label tensors with the same size as the input.

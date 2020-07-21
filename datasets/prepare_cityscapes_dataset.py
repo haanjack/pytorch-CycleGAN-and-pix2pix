@@ -15,7 +15,7 @@ python prepare_cityscapes_dataset.py --gitFine_dir ./gtFine/ --leftImg8bit_dir .
 """
 
 def load_resized_img(path):
-    return Image.open(path).convert('RGB').resize((256, 256))
+    return Image.open(path).convert('RGB').resize((4096, 4096))
 
 def check_matching_pair(segmap_path, photo_path):
     segmap_identifier = os.path.basename(segmap_path).replace('_gtFine_color', '')
@@ -50,7 +50,7 @@ def process_cityscapes(gtFine_dir, leftImg8bit_dir, output_dir, phase):
         photo = load_resized_img(photo_path)
 
         # data for pix2pix where the two images are placed side-by-side
-        sidebyside = Image.new('RGB', (512, 256))
+        sidebyside = Image.new('RGB', (2048, 1024))
         sidebyside.paste(segmap, (256, 0))
         sidebyside.paste(photo, (0, 0))
         savepath = os.path.join(savedir, "%d.jpg" % i)
